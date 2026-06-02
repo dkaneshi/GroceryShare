@@ -385,7 +385,10 @@ new class extends Component {
                     class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors group"
                 >
                     <svg
-                        class="w-4 h-4 transition-transform duration-200 {{ $showPaidWeeks ? 'rotate-90' : '' }}"
+                        @class([
+                            'w-4 h-4 transition-transform duration-200',
+                            'rotate-90' => $showPaidWeeks,
+                        ])
                         fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
