@@ -1,58 +1,106 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# GroceryShare
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A personal web app for splitting weekly grocery bills equally three ways — between you and your two sisters. You pay upfront each Sunday, and the app tracks what each sister owes, notifies them by email, and lets you mark shares as paid.
 
-## About Laravel
+## Features
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- **Dashboard** — Cards showing each sister's total outstanding balance, with a full list of all weeks that have unpaid shares
+- **Add a week's bill** — Enter the total grocery bill; the app floors it to the nearest dollar per share (total ÷ 3) and emails both sisters their amount automatically
+- **Edit a week** — Correct a bill amount or date after the fact; sister share amounts update automatically
+- **Mark as paid / Undo** — Toggle payment status on each sister's share directly from the dashboard
+- **Sisters management** — Add, edit, or remove sisters (name + email) from the Sisters tab
+- **WCAG AA accessible** — All text/background colour combinations meet the 4.5:1 contrast ratio standard
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Tech Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Layer | Technology |
+|---|---|
+| Language | PHP 8.4 |
+| Framework | Laravel 13 |
+| Reactive UI | Livewire 4 (single-file components) |
+| Styling | Tailwind CSS 4 |
+| Database | SQLite |
+| Email | Laravel Mail (log driver by default) |
+| Local server | Laravel Herd |
 
-## Learning Laravel
+## Getting Started
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### Requirements
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- PHP 8.4
+- Composer
+- Node.js & npm
+- [Laravel Herd](https://herd.laravel.com)
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### Installation
 
 ```bash
-composer require laravel/boost --dev
+git clone <repo-url> GroceryShare
+cd GroceryShare
 
-php artisan boost:install
+composer install
+npm install
+
+cp .env.example .env
+php artisan key:generate
+
+touch database/database.sqlite
+php artisan migrate
+
+npm run build
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The app is served by Herd at **http://groceryshare.test** automatically.
 
-## Contributing
+### First-time setup
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+1. Open http://groceryshare.test
+2. Go to the **Sisters** tab and add both sisters' names and email addresses
+3. Return to the **Dashboard** and click **Add Week's Bill** to enter your first grocery total
 
-## Code of Conduct
+## Email Configuration
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+By default, emails are written to `storage/logs/laravel.log` (the `log` mail driver) so no mail server is needed during development. To send real emails, update your `.env`:
 
-## Security Vulnerabilities
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.yourmailprovider.com
+MAIL_PORT=587
+MAIL_USERNAME=you@example.com
+MAIL_PASSWORD=yourpassword
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=you@example.com
+MAIL_FROM_NAME="GroceryShare"
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Database
 
-## License
+SQLite is used via `database/database.sqlite`. To wipe all data and start fresh:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+php artisan migrate:fresh
+```
+
+## Key Files
+
+```
+app/Models/
+  Sister.php          # name, email; outstandingTotal() helper
+  GroceryWeek.php     # week_date, total_amount, share_amount, notes
+  GroceryShare.php    # links a week to a sister; tracks is_paid / paid_at
+
+app/Mail/
+  ShareNotification.php   # email sent to each sister when a week is added
+
+resources/views/
+  layouts/app.blade.php                  # HTML shell with header
+  welcome.blade.php                      # mounts the Dashboard component
+  components/⚡dashboard.blade.php       # main Livewire SFC (all UI)
+  emails/share-notification.blade.php    # markdown email template
+```
+
+## Running Tests
+
+```bash
+php artisan test --compact
+```
