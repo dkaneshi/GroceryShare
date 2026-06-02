@@ -24,6 +24,9 @@ new class extends Component {
     public string $editWeekDate = '';
     public string $editNotes = '';
 
+    // Paid weeks toggle
+    public bool $showPaidWeeks = false;
+
     // Sister form
     public bool $showSisterForm = false;
     public ?int $editingSisterId = null;
@@ -51,6 +54,15 @@ new class extends Component {
     {
         return GroceryWeek::with(['shares.sister'])
             ->whereHas('shares', fn ($q) => $q->where('is_paid', false))
+            ->orderByDesc('week_date')
+            ->get();
+    }
+
+    #[Computed]
+    public function paidWeeks()
+    {
+        return GroceryWeek::with(['shares.sister'])
+            ->whereDoesntHave('shares', fn ($q) => $q->where('is_paid', false))
             ->orderByDesc('week_date')
             ->get();
     }
@@ -362,6 +374,88 @@ new class extends Component {
                         </div>
                     </div>
                 @endforeach
+            </div>
+        @endif
+
+        {{-- Paid Weeks Toggle --}}
+        @if ($this->paidWeeks->isNotEmpty())
+            <div class="mt-6">
+                <button
+                    wire:click="$toggle('showPaidWeeks')"
+                    class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors group"
+                >
+                    <svg
+                        class="w-4 h-4 transition-transform duration-200 {{ $showPaidWeeks ? 'rotate-90' : '' }}"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                    </svg>
+                    Paid in Full
+                    <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                        {{ $this->paidWeeks->count() }}
+                    </span>
+                </button>
+
+                @if ($showPaidWeeks)
+                    <div class="mt-3 space-y-3">
+                        @foreach ($this->paidWeeks as $week)
+                            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-80">
+                                {{-- Week Header --}}
+                                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <p class="font-bold text-gray-800">{{ $week->week_date->format('F j, Y') }}</p>
+                                            <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-full font-semibold">
+                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+                                                Paid in Full
+                                            </span>
+                                        </div>
+                                        @if ($week->notes)
+                                            <p class="text-xs text-gray-500 mt-0.5">{{ $week->notes }}</p>
+                                        @endif
+                                    </div>
+                                    <div class="flex items-start gap-4">
+                                        <div class="text-right">
+                                            <p class="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Bill</p>
+                                            <p class="text-xl font-bold text-gray-800">${{ number_format($week->total_amount, 2) }}</p>
+                                            <p class="text-xs text-gray-600">each: ${{ number_format($week->share_amount, 0) }}</p>
+                                        </div>
+                                        <button
+                                            wire:click="openEditWeek({{ $week->id }})"
+                                            class="text-gray-500 hover:text-indigo-700 transition-colors mt-0.5"
+                                            title="Edit week"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                {{-- Sister Shares --}}
+                                <div class="grid grid-cols-2 divide-x divide-gray-50">
+                                    @foreach ($week->shares as $share)
+                                        <div class="p-4 bg-emerald-50/40">
+                                            <p class="text-xs font-semibold text-gray-500 mb-1">{{ $share->sister->name }}</p>
+                                            <p class="text-lg font-bold text-emerald-600 mb-2">${{ number_format($share->amount, 0) }}</p>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded-full font-semibold">
+                                                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
+                                                        Paid
+                                                    </span>
+                                                    <p class="text-xs text-gray-600 mt-1">{{ $share->paid_at->format('M j') }}</p>
+                                                </div>
+                                                <button wire:click="markUnpaid({{ $share->id }})" class="text-xs text-gray-600 hover:text-gray-800 underline transition-colors">
+                                                    Undo
+                                                </button>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
             </div>
         @endif
 
