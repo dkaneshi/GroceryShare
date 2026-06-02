@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(composer require *)",
+      "Bash(npm install *)",
+      "Bash(php artisan *)",
+      "Bash(composer show *)",
+      "Bash(php -l app/Mail/ShareNotification.php)",
+      "Bash(php -l app/Models/Sister.php)",
+      "Bash(php -l app/Models/GroceryWeek.php)",
+      "Bash(php -l app/Models/GroceryShare.php)",
+      "Bash(npm run *)",
+      "Bash(sed -i '' 's/\\\\$share = round\\(\\\\$total \\\\/ 3, 2\\);/\\\\$share = \\(int\\) floor\\(\\\\$total \\\\/ 3\\);/' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)",
+      "Bash(sed -i '' 's/number_format\\(\\(float\\)$totalAmount \\\\/ 3, 2\\)/number_format\\(floor\\(\\(float\\)$totalAmount \\\\/ 3\\), 0\\)/g' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)"
+    ]
+  }
+}
