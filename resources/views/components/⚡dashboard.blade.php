@@ -6,6 +6,7 @@ use App\Models\Sister;
 use App\Models\GroceryWeek;
 use App\Models\GroceryShare;
 use App\Mail\ShareNotification;
+use App\Services\TwilioService;
 use Illuminate\Support\Facades\Mail;
 
 new class extends Component {
@@ -32,6 +33,7 @@ new class extends Component {
     public ?int $editingSisterId = null;
     public string $sisterName = '';
     public string $sisterEmail = '';
+    public string $sisterPhone = '';
 
     public function mount(): void
     {
@@ -104,6 +106,18 @@ new class extends Component {
             } catch (\Exception $e) {
                 // Email failed silently; the record is still saved
             }
+
+            if ($sister->phone) {
+                try {
+                    $notes = $week->notes ? " ({$week->notes})" : '';
+                    app(TwilioService::class)->sendSms(
+                        $sister->phone,
+                        "Hi {$sister->name}! Your grocery share for the week of {$week->week_date->format('F j, Y')}{$notes} is \${$share}. Please pay when you can!"
+                    );
+                } catch (\Exception $e) {
+                    // SMS failed silently; the record is still saved
+                }
+            }
         }
 
         $this->showAddForm = false;
@@ -111,7 +125,7 @@ new class extends Component {
         $this->notes = '';
         unset($this->recentOutstandingWeeks);
 
-        session()->flash('success', 'Week added! Sisters have been notified by email.');
+        session()->flash('success', 'Week added! Sisters have been notified by email and text.');
     }
 
     public function markPaid(int $shareId): void
@@ -182,11 +196,13 @@ new class extends Component {
             Sister::findOrFail($this->editingSisterId)->update([
                 'name'  => $this->sisterName,
                 'email' => $this->sisterEmail,
+                'phone' => $this->sisterPhone ?: null,
             ]);
         } else {
             Sister::create([
                 'name'  => $this->sisterName,
                 'email' => $this->sisterEmail,
+                'phone' => $this->sisterPhone ?: null,
             ]);
         }
 
@@ -200,6 +216,7 @@ new class extends Component {
         $this->editingSisterId = $id;
         $this->sisterName = $sister->name;
         $this->sisterEmail = $sister->email;
+        $this->sisterPhone = $sister->phone ?? '';
         $this->showSisterForm = true;
     }
 
@@ -215,6 +232,7 @@ new class extends Component {
         $this->editingSisterId = null;
         $this->sisterName = '';
         $this->sisterEmail = '';
+        $this->sisterPhone = '';
         $this->resetValidation();
     }
 };
@@ -494,6 +512,9 @@ new class extends Component {
                         <div>
                             <p class="font-semibold text-gray-800 text-sm">{{ $sister->name }}</p>
                             <p class="text-xs text-gray-600">{{ $sister->email }}</p>
+                            @if ($sister->phone)
+                                <p class="text-xs text-gray-600">{{ $sister->phone }}</p>
+                            @endif
                         </div>
                     </div>
                     <div class="flex items-center gap-3">
@@ -540,6 +561,18 @@ new class extends Component {
                             class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
                         >
                         @error('sisterEmail') <p class="text-rose-700 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                            Phone number <span class="text-gray-500 font-normal normal-case">(optional — for SMS)</span>
+                        </label>
+                        <input
+                            wire:model="sisterPhone"
+                            type="tel"
+                            placeholder="+1 555 000 0000"
+                            class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                        >
+                        @error('sisterPhone') <p class="text-rose-700 text-xs mt-1">{{ $message }}</p> @enderror
                     </div>
                     <div class="flex gap-3 pt-1">
                         <button

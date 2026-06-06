@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Sister extends Model
 {
-    protected $fillable = ['name', 'email'];
+    protected $fillable = ['name', 'email', 'phone'];
 
     public function shares(): HasMany
     {
