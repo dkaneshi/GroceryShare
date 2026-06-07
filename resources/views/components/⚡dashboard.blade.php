@@ -7,6 +7,7 @@ use App\Models\GroceryWeek;
 use App\Models\GroceryShare;
 use App\Mail\ShareNotification;
 use App\Services\TwilioService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 new class extends Component {
@@ -104,7 +105,12 @@ new class extends Component {
             try {
                 Mail::to($sister->email)->send(new ShareNotification($sister, $week, $share));
             } catch (\Exception $e) {
-                // Email failed silently; the record is still saved
+                Log::error('GroceryShare email failed', [
+                    'sister_id' => $sister->id,
+                    'sister'    => $sister->name,
+                    'week_id'   => $week->id,
+                    'error'     => $e->getMessage(),
+                ]);
             }
 
             if ($sister->phone) {
@@ -115,7 +121,12 @@ new class extends Component {
                         "Hi {$sister->name}! Your grocery share for the week of {$week->week_date->format('F j, Y')}{$notes} is \${$share}. Please pay when you can!"
                     );
                 } catch (\Exception $e) {
-                    // SMS failed silently; the record is still saved
+                    Log::error('GroceryShare SMS failed', [
+                        'sister_id' => $sister->id,
+                        'sister'    => $sister->name,
+                        'week_id'   => $week->id,
+                        'error'     => $e->getMessage(),
+                    ]);
                 }
             }
         }
@@ -226,6 +237,31 @@ new class extends Component {
         unset($this->sisters);
     }
 
+    public function sendTestSms(int $id): void
+    {
+        $sister = Sister::findOrFail($id);
+
+        if (! $sister->phone) {
+            session()->flash('error', "No phone number saved for {$sister->name}.");
+            return;
+        }
+
+        try {
+            app(TwilioService::class)->sendSms(
+                $sister->phone,
+                "Hi {$sister->name}! This is a test message from GroceryShare. Texting is working correctly! 🛒"
+            );
+            session()->flash('success', "Test text sent to {$sister->name} at {$sister->phone}.");
+        } catch (\Exception $e) {
+            Log::error('GroceryShare test SMS failed', [
+                'sister_id' => $sister->id,
+                'sister'    => $sister->name,
+                'error'     => $e->getMessage(),
+            ]);
+            session()->flash('error', "Failed to send test text to {$sister->name}: {$e->getMessage()}");
+        }
+    }
+
     public function cancelSisterForm(): void
     {
         $this->showSisterForm = false;
@@ -244,16 +280,33 @@ new class extends Component {
         <div
             x-data="{ show: true }"
             x-show="show"
-            x-init="setTimeout(() => show = false, 4000)"
+            x-init="setTimeout(() => show = false, 5000)"
             x-transition:leave="transition ease-in duration-300"
             x-transition:leave-start="opacity-100 translate-y-0"
             x-transition:leave-end="opacity-0 -translate-y-2"
             class="mb-5 flex items-center gap-3 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-sm font-medium"
         >
-            <svg class="w-5 h-5 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="w-5 h-5 text-emerald-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
             </svg>
             {{ session('success') }}
+        </div>
+    @endif
+
+    @if (session()->has('error'))
+        <div
+            x-data="{ show: true }"
+            x-show="show"
+            x-init="setTimeout(() => show = false, 7000)"
+            x-transition:leave="transition ease-in duration-300"
+            x-transition:leave-start="opacity-100 translate-y-0"
+            x-transition:leave-end="opacity-0 -translate-y-2"
+            class="mb-5 flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-xl text-sm font-medium"
+        >
+            <svg class="w-5 h-5 text-rose-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9a1 1 0 112 0v4a1 1 0 11-2 0V9zm1-4a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd"/>
+            </svg>
+            {{ session('error') }}
         </div>
     @endif
 
@@ -521,6 +574,17 @@ new class extends Component {
                         <button wire:click="editSister({{ $sister->id }})" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium transition-colors">
                             Edit
                         </button>
+                        @if ($sister->phone)
+                            <button
+                                wire:click="sendTestSms({{ $sister->id }})"
+                                wire:loading.attr="disabled"
+                                wire:target="sendTestSms({{ $sister->id }})"
+                                class="text-violet-700 hover:text-violet-900 text-sm font-medium transition-colors disabled:opacity-50"
+                            >
+                                <span wire:loading.remove wire:target="sendTestSms({{ $sister->id }})">Send test text</span>
+                                <span wire:loading wire:target="sendTestSms({{ $sister->id }})">Sending…</span>
+                            </button>
+                        @endif
                         <button
                             wire:click="deleteSister({{ $sister->id }})"
                             wire:confirm="Remove {{ $sister->name }}? Their outstanding shares will also be deleted."

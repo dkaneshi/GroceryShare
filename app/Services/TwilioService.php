@@ -13,8 +13,9 @@ class TwilioService
     public function __construct()
     {
         $this->client = new Client(
+            config('services.twilio.api_key'),
+            config('services.twilio.api_secret'),
             config('services.twilio.sid'),
-            config('services.twilio.token'),
         );
 
         $this->from = config('services.twilio.from');
