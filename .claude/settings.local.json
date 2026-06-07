@@ -11,7 +11,15 @@
       "Bash(php -l app/Models/GroceryShare.php)",
       "Bash(npm run *)",
       "Bash(sed -i '' 's/\\\\$share = round\\(\\\\$total \\\\/ 3, 2\\);/\\\\$share = \\(int\\) floor\\(\\\\$total \\\\/ 3\\);/' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)",
-      "Bash(sed -i '' 's/number_format\\(\\(float\\)$totalAmount \\\\/ 3, 2\\)/number_format\\(floor\\(\\(float\\)$totalAmount \\\\/ 3\\), 0\\)/g' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)"
+      "Bash(sed -i '' 's/number_format\\(\\(float\\)$totalAmount \\\\/ 3, 2\\)/number_format\\(floor\\(\\(float\\)$totalAmount \\\\/ 3\\), 0\\)/g' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)",
+      "Bash(git -C /Users/dkaneshi/Herd/GroceryShare status)",
+      "Bash(git -C /Users/dkaneshi/Herd/GroceryShare log --oneline -5)",
+      "Bash(git -C /Users/dkaneshi/Herd/GroceryShare diff)",
+      "Bash(git -C /Users/dkaneshi/Herd/GroceryShare add \"resources/views/components/⚡dashboard.blade.php\")",
+      "Bash(git -C /Users/dkaneshi/Herd/GroceryShare commit -m ' *)",
+      "Bash(grep -n 'sisterPhone\\\\|sisterName\\\\|sisterEmail\\\\|public string $sister\\\\|saveSister\\\\|cancelSisterForm\\\\|Sister::create\\\\|Sister::findOrFail' /Users/dkaneshi/Herd/GroceryShare/resources/views/components/⚡dashboard.blade.php)",
+      "Bash(vendor/bin/pint --dirty --format agent)",
+      "Bash(php -l app/Services/TwilioService.php)"
     ]
   }
 }
