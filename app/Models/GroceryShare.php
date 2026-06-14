@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GroceryShare extends Model
 {
+    use HasFactory;
+
     protected $fillable = ['grocery_week_id', 'sister_id', 'amount', 'is_paid', 'paid_at'];
 
     protected $casts = [
