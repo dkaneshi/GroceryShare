@@ -5,6 +5,8 @@
 .env.production
 .phpactor.json
 .phpunit.result.cache
+/.ai/
+/.claude/settings.local.json
 /.codex
 /.cursor/
 /.idea
