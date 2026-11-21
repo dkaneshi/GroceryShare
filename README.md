@@ -98,6 +98,33 @@ SQLite is used via `database/database.sqlite`. To wipe all data and start fresh:
 php artisan migrate:fresh
 ```
 
+### Export & Import
+
+Export sisters, weeks and shares to `storage/app/private/exports/`:
+
+```bash
+# Single JSON file (can be re-imported)
+php artisan app:export-data
+
+# One CSV file per table, for spreadsheets
+php artisan app:export-data --format=csv
+
+# Write somewhere else
+php artisan app:export-data --path=/path/to/folder
+```
+
+Restore a JSON export:
+
+```bash
+# Into an empty database
+php artisan app:import-data storage/app/private/exports/groceryshare-export-2026-11-21_120000.json
+
+# Replace existing sisters, weeks and shares
+php artisan app:import-data path/to/export.json --force
+```
+
+The import runs in a single transaction, so if anything fails nothing is changed. Only JSON exports can be imported; CSV is for viewing only.
+
 ## Key Files
 
 ```
@@ -111,6 +138,10 @@ app/Mail/
 
 app/Services/
   TwilioService.php       # wraps Twilio SDK for sending SMS messages
+
+app/Console/Commands/
+  ExportData.php          # app:export-data (JSON or CSV)
+  ImportData.php          # app:import-data (JSON, --force to overwrite)
 
 resources/views/
   layouts/app.blade.php                  # HTML shell with header
@@ -128,6 +159,8 @@ tests/
   Unit/GroceryWeekTest.php     # allPaid() and shares relationship
   Feature/DashboardTest.php    # all Livewire component methods (29 tests)
   Feature/ShareNotificationTest.php  # mailable subject, content, properties
+  Feature/ExportDataCommandTest.php  # JSON/CSV export output
+  Feature/ImportDataCommandTest.php  # round trip, --force, rollback, bad input
 ```
 
 ## Running Tests
