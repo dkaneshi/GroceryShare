@@ -10,11 +10,9 @@ class GroceryShare extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['grocery_week_id', 'sister_id', 'amount', 'is_paid', 'paid_at'];
+    protected $fillable = ['grocery_week_id', 'sister_id', 'amount'];
 
     protected $casts = [
-        'is_paid' => 'boolean',
-        'paid_at' => 'datetime',
         'amount' => 'decimal:2',
     ];
 

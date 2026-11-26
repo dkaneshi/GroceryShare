@@ -22,9 +22,4 @@ class GroceryWeek extends Model
     {
         return $this->hasMany(GroceryShare::class);
     }
-
-    public function allPaid(): bool
-    {
-        return $this->shares()->where('is_paid', false)->count() === 0;
-    }
 }

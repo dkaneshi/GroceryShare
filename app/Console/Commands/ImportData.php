@@ -12,7 +12,7 @@ use JsonException;
 
 #[Signature('app:import-data
     {file : Path to a JSON file created by app:export-data}
-    {--force : Delete existing sisters, weeks and shares before importing}')]
+    {--force : Delete existing sisters, weeks, shares and payments before importing}')]
 #[Description('Import GroceryShare data from a JSON export created by app:export-data')]
 class ImportData extends Command
 {

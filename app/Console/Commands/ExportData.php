@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Schema;
 #[Signature('app:export-data
     {--format=json : Export format: "json" (single file) or "csv" (one file per table)}
     {--path= : Directory to write the export to (defaults to storage/app/private/exports)}')]
-#[Description('Export all GroceryShare data (sisters, weeks, shares) to portable JSON or CSV files')]
+#[Description('Export all GroceryShare data (sisters, weeks, shares, payments) to portable JSON or CSV files')]
 class ExportData extends Command
 {
     /**
@@ -20,7 +20,7 @@ class ExportData extends Command
      *
      * @var list<string>
      */
-    public const TABLES = ['sisters', 'grocery_weeks', 'grocery_shares'];
+    public const TABLES = ['sisters', 'grocery_weeks', 'grocery_shares', 'payments'];
 
     /**
      * Execute the console command.

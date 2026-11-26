@@ -1,13 +1,13 @@
 # GroceryShare
 
-A personal web app for splitting weekly grocery bills equally three ways — between you and your two sisters. You pay upfront each Sunday, and the app tracks what each sister owes, notifies them by email, and lets you mark shares as paid.
+A personal web app for splitting weekly grocery bills equally three ways — between you and your two sisters. You pay upfront each Sunday, and the app tracks what each sister owes, notifies them by email, and lets you record whatever amount each sister pays back.
 
 ## Features
 
-- **Dashboard** — Cards showing each sister's total outstanding balance, with a full list of all weeks that have unpaid shares
+- **Dashboard** — Cards showing each sister's running balance (total shares minus total payments; overpayments show as credit toward next week), a list of all weeks, and a payment history
 - **Add a week's bill** — Enter the total grocery bill; the app floors it to the nearest dollar per share (total ÷ 3) and emails both sisters their amount automatically
 - **Edit a week** — Correct a bill amount or date after the fact; sister share amounts update automatically
-- **Mark as paid / Undo** — Toggle payment status on each sister's share directly from the dashboard
+- **Record payment** — Log any amount a sister gives you (full, partial, or extra); delete a payment to undo it
 - **Sisters management** — Add, edit, or remove sisters (name, email, and optional phone number) from the Sisters tab
 - **SMS notifications** — Sisters with a phone number on file receive a text message alongside the email when a new week is added
 - **Test SMS** — Send a one-off test message to verify a sister's phone number is configured correctly
@@ -129,9 +129,10 @@ The import runs in a single transaction, so if anything fails nothing is changed
 
 ```
 app/Models/
-  Sister.php          # name, email, phone; outstandingTotal() helper
-  GroceryWeek.php     # week_date, total_amount, share_amount, notes; allPaid() helper
-  GroceryShare.php    # links a week to a sister; tracks is_paid / paid_at
+  Sister.php          # name, email, phone; outstandingTotal() = shares − payments
+  GroceryWeek.php     # week_date, total_amount, share_amount, notes
+  GroceryShare.php    # links a week to a sister with the amount owed
+  Payment.php         # money a sister paid you: amount, paid_on, notes
 
 app/Mail/
   ShareNotification.php   # email sent to each sister when a week is added
@@ -152,11 +153,12 @@ resources/views/
 database/factories/
   SisterFactory.php        # includes withPhone() state
   GroceryWeekFactory.php
-  GroceryShareFactory.php  # includes paid() state
+  GroceryShareFactory.php
+  PaymentFactory.php
 
 tests/
-  Unit/SisterTest.php          # outstandingTotal() and shares relationship
-  Unit/GroceryWeekTest.php     # allPaid() and shares relationship
+  Unit/SisterTest.php          # outstandingTotal() (partial, credit) and shares relationship
+  Unit/GroceryWeekTest.php     # shares relationship
   Feature/DashboardTest.php    # all Livewire component methods (29 tests)
   Feature/ShareNotificationTest.php  # mailable subject, content, properties
   Feature/ExportDataCommandTest.php  # JSON/CSV export output

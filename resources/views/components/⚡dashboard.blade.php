@@ -5,6 +5,7 @@ use Livewire\Component;
 use App\Models\Sister;
 use App\Models\GroceryWeek;
 use App\Models\GroceryShare;
+use App\Models\Payment;
 use App\Mail\ShareNotification;
 use App\Services\TwilioService;
 use Illuminate\Support\Facades\Log;
@@ -26,8 +27,12 @@ new class extends Component {
     public string $editWeekDate = '';
     public string $editNotes = '';
 
-    // Paid weeks toggle
-    public bool $showPaidWeeks = false;
+    // Record Payment form
+    public bool $showPaymentForm = false;
+    public ?int $paymentSisterId = null;
+    public string $paymentAmount = '';
+    public string $paymentDate = '';
+    public string $paymentNotes = '';
 
     // Sister form
     public bool $showSisterForm = false;
@@ -53,20 +58,19 @@ new class extends Component {
     }
 
     #[Computed]
-    public function recentOutstandingWeeks()
+    public function weeks()
     {
         return GroceryWeek::with(['shares.sister'])
-            ->whereHas('shares', fn ($q) => $q->where('is_paid', false))
             ->orderByDesc('week_date')
             ->get();
     }
 
     #[Computed]
-    public function paidWeeks()
+    public function payments()
     {
-        return GroceryWeek::with(['shares.sister'])
-            ->whereDoesntHave('shares', fn ($q) => $q->where('is_paid', false))
-            ->orderByDesc('week_date')
+        return Payment::with('sister')
+            ->orderByDesc('paid_on')
+            ->orderByDesc('id')
             ->get();
     }
 
@@ -99,7 +103,6 @@ new class extends Component {
                 'grocery_week_id' => $week->id,
                 'sister_id'       => $sister->id,
                 'amount'          => $share,
-                'is_paid'         => false,
             ]);
 
             try {
@@ -116,9 +119,13 @@ new class extends Component {
             if ($sister->phone) {
                 try {
                     $notes = $week->notes ? " ({$week->notes})" : '';
+                    $balance = $sister->outstandingTotal();
+                    $balanceMessage = $balance > 0
+                        ? 'Your current total balance is $'.number_format($balance, 2).'. Please send $'.number_format($balance, 2).' when you can!'
+                        : 'Your earlier payments already cover this week. You still have $'.number_format(abs($balance), 2)." in credit, so there's nothing to send right now!";
                     app(TwilioService::class)->sendSms(
                         $sister->phone,
-                        "Hi {$sister->name}! Your grocery share for the week of {$week->week_date->format('F j, Y')}{$notes} is \${$share}. Please pay when you can!"
+                        "Hi {$sister->name}! Your grocery share for the week of {$week->week_date->format('F j, Y')}{$notes} is \$".number_format($share, 2).". {$balanceMessage}"
                     );
                 } catch (\Exception $e) {
                     Log::error('GroceryShare SMS failed', [
@@ -134,23 +141,50 @@ new class extends Component {
         $this->showAddForm = false;
         $this->totalAmount = '';
         $this->notes = '';
-        unset($this->recentOutstandingWeeks);
+        unset($this->weeks, $this->sisters);
 
         session()->flash('success', 'Week added! Sisters have been notified by email and text.');
     }
 
-    public function markPaid(int $shareId): void
+    public function openPaymentForm(int $sisterId): void
     {
-        GroceryShare::findOrFail($shareId)->update(['is_paid' => true, 'paid_at' => now()]);
-        unset($this->recentOutstandingWeeks);
-        unset($this->sisters);
+        $this->resetValidation();
+        $this->paymentSisterId = Sister::findOrFail($sisterId)->id;
+        $this->paymentAmount = '';
+        $this->paymentDate = now()->format('Y-m-d');
+        $this->paymentNotes = '';
+        $this->showPaymentForm = true;
     }
 
-    public function markUnpaid(int $shareId): void
+    public function recordPayment(): void
     {
-        GroceryShare::findOrFail($shareId)->update(['is_paid' => false, 'paid_at' => null]);
-        unset($this->recentOutstandingWeeks);
-        unset($this->sisters);
+        $this->validate([
+            'paymentSisterId' => ['required', 'exists:sisters,id'],
+            'paymentAmount'   => ['required', 'numeric', 'min:0.01'],
+            'paymentDate'     => ['required', 'date'],
+            'paymentNotes'    => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $payment = Payment::create([
+            'sister_id' => $this->paymentSisterId,
+            'amount'    => (float) $this->paymentAmount,
+            'paid_on'   => $this->paymentDate,
+            'notes'     => $this->paymentNotes ?: null,
+        ]);
+
+        $this->showPaymentForm = false;
+        $this->paymentSisterId = null;
+        $this->paymentAmount = '';
+        $this->paymentNotes = '';
+        unset($this->payments, $this->sisters);
+
+        session()->flash('success', 'Payment of $'.number_format($payment->amount, 2)." recorded for {$payment->sister->name}.");
+    }
+
+    public function deletePayment(int $paymentId): void
+    {
+        Payment::findOrFail($paymentId)->delete();
+        unset($this->payments, $this->sisters);
     }
 
 
@@ -190,8 +224,7 @@ new class extends Component {
         $this->editWeekDate    = '';
         $this->editNotes       = '';
         $this->resetValidation();
-        unset($this->recentOutstandingWeeks);
-        unset($this->sisters);
+        unset($this->weeks, $this->sisters);
 
         session()->flash('success', 'Week updated successfully.');
     }
@@ -234,7 +267,7 @@ new class extends Component {
     public function deleteSister(int $id): void
     {
         Sister::findOrFail($id)->delete();
-        unset($this->sisters);
+        unset($this->sisters, $this->weeks, $this->payments);
     }
 
     public function sendTestSms(int $id): void
@@ -334,20 +367,32 @@ new class extends Component {
     {{-- =================== DASHBOARD TAB =================== --}}
     @if ($activeTab === 'dashboard')
 
-        {{-- Outstanding Totals --}}
+        {{-- Balances --}}
         @if ($this->sisters->count() > 0)
             <div class="grid grid-cols-2 gap-4 mb-6">
                 @foreach ($this->sisters as $sister)
-                    @php $outstanding = $sister->outstandingTotal(); @endphp
+                    @php $balance = $sister->outstandingTotal(); @endphp
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 relative overflow-hidden">
-                        <div class="absolute inset-0 {{ $outstanding > 0 ? 'bg-gradient-to-br from-rose-50 to-transparent' : 'bg-gradient-to-br from-emerald-50 to-transparent' }} pointer-events-none"></div>
+                        <div class="absolute inset-0 {{ $balance > 0 ? 'bg-gradient-to-br from-rose-50 to-transparent' : 'bg-gradient-to-br from-emerald-50 to-transparent' }} pointer-events-none"></div>
                         <p class="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">{{ $sister->name }}</p>
-                        <p class="text-3xl font-bold {{ $outstanding > 0 ? 'text-rose-600' : 'text-emerald-600' }}">
-                            ${{ number_format($outstanding, 2) }}
+                        <p class="text-3xl font-bold {{ $balance > 0 ? 'text-rose-600' : 'text-emerald-600' }}">
+                            ${{ number_format(abs($balance), 2) }}
                         </p>
                         <p class="text-xs text-gray-600 mt-1 font-medium">
-                            {{ $outstanding > 0 ? 'outstanding' : 'all paid up ✓' }}
+                            @if ($balance > 0)
+                                outstanding
+                            @elseif ($balance < 0)
+                                credit toward next week
+                            @else
+                                all paid up ✓
+                            @endif
                         </p>
+                        <button
+                            wire:click="openPaymentForm({{ $sister->id }})"
+                            class="relative mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-semibold transition-colors"
+                        >
+                            Record Payment
+                        </button>
                     </div>
                 @endforeach
             </div>
@@ -361,8 +406,8 @@ new class extends Component {
         {{-- Section Header + Add Button --}}
         <div class="flex items-center justify-between mb-4">
             <div>
-                <h2 class="text-base font-bold text-gray-800">Outstanding Weeks</h2>
-                <p class="text-xs text-gray-600">All weeks with unpaid shares</p>
+                <h2 class="text-base font-bold text-gray-800">Grocery Weeks</h2>
+                <p class="text-xs text-gray-600">Each week's bill and everyone's share</p>
             </div>
             <button
                 wire:click="$set('showAddForm', true)"
@@ -375,16 +420,16 @@ new class extends Component {
             </button>
         </div>
 
-        {{-- Outstanding Weeks List --}}
-        @if ($this->recentOutstandingWeeks->isEmpty())
+        {{-- Weeks List --}}
+        @if ($this->weeks->isEmpty())
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                <div class="text-4xl mb-3">🎉</div>
-                <p class="text-gray-600 font-semibold">All caught up!</p>
-                <p class="text-gray-600 text-sm mt-1">No outstanding shares. Add a new week's bill above.</p>
+                <div class="text-4xl mb-3">🛒</div>
+                <p class="text-gray-600 font-semibold">No weeks yet</p>
+                <p class="text-gray-600 text-sm mt-1">Add a new week's bill above.</p>
             </div>
         @else
             <div class="space-y-4">
-                @foreach ($this->recentOutstandingWeeks as $week)
+                @foreach ($this->weeks as $week)
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                         {{-- Week Header --}}
                         <div class="flex items-center justify-between px-5 py-4 border-b border-gray-50">
@@ -414,32 +459,9 @@ new class extends Component {
                         {{-- Sister Shares --}}
                         <div class="grid grid-cols-2 divide-x divide-gray-50">
                             @foreach ($week->shares as $share)
-                                <div class="p-4 {{ $share->is_paid ? 'bg-emerald-50/50' : 'bg-white' }}">
+                                <div class="p-4">
                                     <p class="text-xs font-semibold text-gray-500 mb-1">{{ $share->sister->name }}</p>
-                                    <p class="text-lg font-bold {{ $share->is_paid ? 'text-emerald-600' : 'text-rose-600' }} mb-2">
-                                        ${{ number_format($share->amount, 2) }}
-                                    </p>
-                                    @if ($share->is_paid)
-                                        <div class="flex items-center justify-between">
-                                            <div>
-                                                <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded-full font-semibold">
-                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-                                                    Paid
-                                                </span>
-                                                <p class="text-xs text-gray-600 mt-1">{{ $share->paid_at->format('M j') }}</p>
-                                            </div>
-                                            <button wire:click="markUnpaid({{ $share->id }})" class="text-xs text-gray-600 hover:text-gray-800 underline transition-colors">
-                                                Undo
-                                            </button>
-                                        </div>
-                                    @else
-                                        <button
-                                            wire:click="markPaid({{ $share->id }})"
-                                            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-semibold transition-colors"
-                                        >
-                                            Mark as Paid
-                                        </button>
-                                    @endif
+                                    <p class="text-lg font-bold text-gray-800">${{ number_format($share->amount, 2) }}</p>
                                 </div>
                             @endforeach
                         </div>
@@ -448,90 +470,45 @@ new class extends Component {
             </div>
         @endif
 
-        {{-- Paid Weeks Toggle --}}
-        @if ($this->paidWeeks->isNotEmpty())
-            <div class="mt-6">
-                <button
-                    wire:click="$toggle('showPaidWeeks')"
-                    class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors group"
-                >
-                    <svg
-                        @class([
-                            'w-4 h-4 transition-transform duration-200',
-                            'rotate-90' => $showPaidWeeks,
-                        ])
-                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-                    </svg>
-                    Paid in Full
-                    <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded-full">
-                        {{ $this->paidWeeks->count() }}
-                    </span>
-                </button>
-
-                @if ($showPaidWeeks)
-                    <div class="mt-3 space-y-3">
-                        @foreach ($this->paidWeeks as $week)
-                            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-80">
-                                {{-- Week Header --}}
-                                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-50">
-                                    <div>
-                                        <div class="flex items-center gap-2">
-                                            <p class="font-bold text-gray-800">{{ $week->week_date->format('F j, Y') }}</p>
-                                            <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-full font-semibold">
-                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-                                                Paid in Full
-                                            </span>
-                                        </div>
-                                        @if ($week->notes)
-                                            <p class="text-xs text-gray-500 mt-0.5">{{ $week->notes }}</p>
-                                        @endif
-                                    </div>
-                                    <div class="flex items-start gap-4">
-                                        <div class="text-right">
-                                            <p class="text-xs text-gray-600 font-medium uppercase tracking-wide">Total Bill</p>
-                                            <p class="text-xl font-bold text-gray-800">${{ number_format($week->total_amount, 2) }}</p>
-                                            <p class="text-xs text-gray-600">each: ${{ number_format($week->share_amount, 0) }}</p>
-                                        </div>
-                                        <button
-                                            wire:click="openEditWeek({{ $week->id }})"
-                                            class="text-gray-500 hover:text-indigo-700 transition-colors mt-0.5"
-                                            title="Edit week"
-                                        >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                {{-- Sister Shares --}}
-                                <div class="grid grid-cols-2 divide-x divide-gray-50">
-                                    @foreach ($week->shares as $share)
-                                        <div class="p-4 bg-emerald-50/40">
-                                            <p class="text-xs font-semibold text-gray-500 mb-1">{{ $share->sister->name }}</p>
-                                            <p class="text-lg font-bold text-emerald-600 mb-2">${{ number_format($share->amount, 0) }}</p>
-                                            <div class="flex items-center justify-between">
-                                                <div>
-                                                    <span class="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded-full font-semibold">
-                                                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-                                                        Paid
-                                                    </span>
-                                                    <p class="text-xs text-gray-600 mt-1">{{ $share->paid_at->format('M j') }}</p>
-                                                </div>
-                                                <button wire:click="markUnpaid({{ $share->id }})" class="text-xs text-gray-600 hover:text-gray-800 underline transition-colors">
-                                                    Undo
-                                                </button>
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
+        {{-- Payment History --}}
+        <div class="mt-8">
+            <div class="mb-4">
+                <h2 class="text-base font-bold text-gray-800">Payment History</h2>
+                <p class="text-xs text-gray-600">Money your sisters have given you</p>
             </div>
-        @endif
+
+            @if ($this->payments->isEmpty())
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+                    <p class="text-gray-600 text-sm">No payments recorded yet.</p>
+                </div>
+            @else
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    @foreach ($this->payments as $payment)
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-50 last:border-0">
+                            <div>
+                                <p class="font-semibold text-gray-800 text-sm">{{ $payment->sister->name }}</p>
+                                <p class="text-xs text-gray-600">
+                                    {{ $payment->paid_on->format('M j, Y') }}
+                                    @if ($payment->notes)
+                                        · {{ $payment->notes }}
+                                    @endif
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <p class="font-bold text-emerald-600">${{ number_format($payment->amount, 2) }}</p>
+                                <button
+                                    wire:click="deletePayment({{ $payment->id }})"
+                                    wire:confirm="Delete this ${{ number_format($payment->amount, 2) }} payment from {{ $payment->sister->name }}?"
+                                    class="text-xs text-rose-700 hover:text-rose-900 underline transition-colors"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
 
     @endif
 
@@ -587,7 +564,7 @@ new class extends Component {
                         @endif
                         <button
                             wire:click="deleteSister({{ $sister->id }})"
-                            wire:confirm="Remove {{ $sister->name }}? Their outstanding shares will also be deleted."
+                            wire:confirm="Remove {{ $sister->name }}? Their shares and payment history will also be deleted."
                             class="text-rose-700 hover:text-rose-900 text-sm font-medium transition-colors"
                         >
                             Remove
@@ -854,6 +831,90 @@ new class extends Component {
                     </button>
                     <button
                         wire:click="$set('showEditForm', false)"
+                        class="px-4 py-3 rounded-xl font-medium text-sm border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- =================== RECORD PAYMENT MODAL =================== --}}
+    @if ($showPaymentForm)
+        <div
+            class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4"
+            wire:click.self="$set('showPaymentForm', false)"
+        >
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 sm:p-7">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-900">Record Payment</h2>
+                        <p class="text-sm text-gray-600 mt-0.5">{{ $this->sisters->firstWhere('id', $paymentSisterId)?->name }}</p>
+                    </div>
+                    <button wire:click="$set('showPaymentForm', false)" class="text-gray-600 hover:text-gray-900 transition-colors p-1" aria-label="Close">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label for="paymentAmount" class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Amount</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-semibold text-sm">$</span>
+                            <input
+                                id="paymentAmount"
+                                wire:model="paymentAmount"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                placeholder="0.00"
+                                class="w-full border border-gray-200 rounded-xl pl-8 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                            >
+                        </div>
+                        @error('paymentAmount') <p class="text-rose-700 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    <div>
+                        <label for="paymentDate" class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Date received</label>
+                        <input
+                            id="paymentDate"
+                            wire:model="paymentDate"
+                            type="date"
+                            class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                        >
+                        @error('paymentDate') <p class="text-rose-700 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    <div>
+                        <label for="paymentNotes" class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                            Notes <span class="text-gray-600 font-normal normal-case">(optional)</span>
+                        </label>
+                        <input
+                            id="paymentNotes"
+                            wire:model="paymentNotes"
+                            type="text"
+                            placeholder="e.g. Venmo, cash..."
+                            class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition"
+                        >
+                        @error('paymentNotes') <p class="text-rose-700 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    @error('paymentSisterId') <p class="text-rose-700 text-xs">{{ $message }}</p> @enderror
+                </div>
+
+                <div class="mt-6 flex gap-3">
+                    <button
+                        wire:click="recordPayment"
+                        wire:loading.attr="disabled"
+                        class="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-4 py-3 rounded-xl font-semibold text-sm transition-colors"
+                    >
+                        <span wire:loading.remove wire:target="recordPayment">Save Payment</span>
+                        <span wire:loading wire:target="recordPayment">Saving...</span>
+                    </button>
+                    <button
+                        wire:click="$set('showPaymentForm', false)"
                         class="px-4 py-3 rounded-xl font-medium text-sm border border-gray-200 text-gray-600 hover:text-gray-800 hover:border-gray-300 transition-colors"
                     >
                         Cancel

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Mail\ShareNotification;
 use App\Models\GroceryShare;
 use App\Models\GroceryWeek;
+use App\Models\Payment;
 use App\Models\Sister;
 use App\Services\TwilioService;
 use Carbon\Carbon;
@@ -141,24 +142,79 @@ class DashboardTest extends TestCase
         $this->assertDatabaseCount('grocery_weeks', 1);
     }
 
-    public function test_mark_paid_sets_share_as_paid_with_timestamp(): void
+    public function test_open_payment_form_prefills_sister_and_today(): void
     {
-        $share = GroceryShare::factory()->create(['is_paid' => false]);
+        $sister = Sister::factory()->create();
 
-        Livewire::test('dashboard')->call('markPaid', $share->id);
-
-        $this->assertDatabaseHas('grocery_shares', ['id' => $share->id, 'is_paid' => true]);
-        $this->assertNotNull($share->fresh()->paid_at);
+        Livewire::test('dashboard')
+            ->call('openPaymentForm', $sister->id)
+            ->assertSet('paymentSisterId', $sister->id)
+            ->assertSet('paymentDate', now()->format('Y-m-d'))
+            ->assertSet('showPaymentForm', true);
     }
 
-    public function test_mark_unpaid_clears_paid_status_and_timestamp(): void
+    public function test_record_payment_creates_payment_and_lowers_balance(): void
     {
-        $share = GroceryShare::factory()->paid()->create();
+        $sister = Sister::factory()->create();
+        GroceryShare::factory()->create(['sister_id' => $sister->id, 'amount' => 50.00]);
 
-        Livewire::test('dashboard')->call('markUnpaid', $share->id);
+        Livewire::test('dashboard')
+            ->call('openPaymentForm', $sister->id)
+            ->set('paymentAmount', '20.00')
+            ->set('paymentDate', '2026-06-03')
+            ->set('paymentNotes', 'Venmo')
+            ->call('recordPayment')
+            ->assertHasNoErrors()
+            ->assertSet('showPaymentForm', false)
+            ->assertSee('$30.00')
+            ->assertSee('Venmo');
 
-        $this->assertDatabaseHas('grocery_shares', ['id' => $share->id, 'is_paid' => false]);
-        $this->assertNull($share->fresh()->paid_at);
+        $this->assertDatabaseHas('payments', ['sister_id' => $sister->id, 'amount' => 20.00, 'notes' => 'Venmo']);
+        $this->assertSame(30.00, $sister->outstandingTotal());
+    }
+
+    public function test_overpayment_shows_as_credit(): void
+    {
+        $sister = Sister::factory()->create();
+        GroceryShare::factory()->create(['sister_id' => $sister->id, 'amount' => 50.00]);
+        Payment::factory()->create(['sister_id' => $sister->id, 'amount' => 65.00]);
+
+        Livewire::test('dashboard')
+            ->assertSee('$15.00')
+            ->assertSee('credit toward next week');
+    }
+
+    public function test_record_payment_fails_validation_for_bad_input(): void
+    {
+        $sister = Sister::factory()->create();
+
+        Livewire::test('dashboard')
+            ->call('openPaymentForm', $sister->id)
+            ->set('paymentAmount', '0')
+            ->set('paymentDate', '')
+            ->call('recordPayment')
+            ->assertHasErrors(['paymentAmount', 'paymentDate']);
+
+        Livewire::test('dashboard')
+            ->set('paymentSisterId', 999)
+            ->set('paymentAmount', '10')
+            ->set('paymentDate', '2026-06-03')
+            ->call('recordPayment')
+            ->assertHasErrors(['paymentSisterId']);
+
+        $this->assertDatabaseCount('payments', 0);
+    }
+
+    public function test_delete_payment_removes_it_and_restores_balance(): void
+    {
+        $sister = Sister::factory()->create();
+        GroceryShare::factory()->create(['sister_id' => $sister->id, 'amount' => 50.00]);
+        $payment = Payment::factory()->create(['sister_id' => $sister->id, 'amount' => 50.00]);
+
+        Livewire::test('dashboard')->call('deletePayment', $payment->id);
+
+        $this->assertDatabaseMissing('payments', ['id' => $payment->id]);
+        $this->assertSame(50.00, $sister->outstandingTotal());
     }
 
     public function test_open_edit_week_loads_week_data_into_form(): void
@@ -303,6 +359,38 @@ class DashboardTest extends TestCase
             ->with($sister->phone, \Mockery::type('string'));
 
         Livewire::test('dashboard')->call('sendTestSms', $sister->id);
+    }
+
+    public function test_add_week_sms_includes_balance_or_remaining_credit(): void
+    {
+        Mail::fake();
+        $owing = Sister::factory()->withPhone()->create(['name' => 'Amy', 'phone' => '+15550000001']);
+        $inCredit = Sister::factory()->withPhone()->create(['name' => 'Beth', 'phone' => '+15550000002']);
+        GroceryShare::factory()->create(['sister_id' => $owing->id, 'amount' => 20.00]);
+        Payment::factory()->create(['sister_id' => $inCredit->id, 'amount' => 80.00]);
+
+        $messages = [];
+        $this->mock(TwilioService::class)
+            ->shouldReceive('sendSms')
+            ->twice()
+            ->andReturnUsing(function (string $phone, string $message) use (&$messages): void {
+                $messages[$phone] = $message;
+            });
+
+        Livewire::test('dashboard')
+            ->set('totalAmount', '150.00')
+            ->set('weekDate', '2026-06-07')
+            ->call('addWeek')
+            ->assertHasNoErrors();
+
+        $this->assertSame(
+            'Hi Amy! Your grocery share for the week of June 7, 2026 is $50.00. Your current total balance is $70.00. Please send $70.00 when you can!',
+            $messages['+15550000001'],
+        );
+        $this->assertSame(
+            "Hi Beth! Your grocery share for the week of June 7, 2026 is $50.00. Your earlier payments already cover this week. You still have $30.00 in credit, so there's nothing to send right now!",
+            $messages['+15550000002'],
+        );
     }
 
     public function test_send_test_sms_does_not_send_when_sister_has_no_phone(): void

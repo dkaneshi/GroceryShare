@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\GroceryShare;
 use App\Models\GroceryWeek;
+use App\Models\Payment;
 use App\Models\Sister;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -34,10 +35,12 @@ class ImportDataCommandTest extends TestCase
     {
         $sister = Sister::factory()->create(['name' => 'Jane']);
         $week = GroceryWeek::factory()->create(['notes' => 'Costco "bulk" run, eggs']);
-        $share = GroceryShare::factory()->paid()->create(['sister_id' => $sister->id, 'grocery_week_id' => $week->id]);
-        $original = [Sister::all()->toArray(), GroceryWeek::all()->toArray(), GroceryShare::all()->toArray()];
+        $share = GroceryShare::factory()->create(['sister_id' => $sister->id, 'grocery_week_id' => $week->id]);
+        Payment::factory()->create(['sister_id' => $sister->id, 'amount' => 12.50, 'notes' => 'Venmo']);
+        $original = [Sister::all()->toArray(), GroceryWeek::all()->toArray(), GroceryShare::all()->toArray(), Payment::all()->toArray()];
         $file = $this->export();
 
+        Payment::query()->delete();
         GroceryShare::query()->delete();
         GroceryWeek::query()->delete();
         Sister::query()->delete();
@@ -46,7 +49,7 @@ class ImportDataCommandTest extends TestCase
             ->expectsOutputToContain('Imported from:')
             ->assertSuccessful();
 
-        $this->assertSame($original, [Sister::all()->toArray(), GroceryWeek::all()->toArray(), GroceryShare::all()->toArray()]);
+        $this->assertSame($original, [Sister::all()->toArray(), GroceryWeek::all()->toArray(), GroceryShare::all()->toArray(), Payment::all()->toArray()]);
         $this->assertSame($sister->id, $share->fresh()->sister->id);
     }
 
@@ -88,6 +91,7 @@ class ImportDataCommandTest extends TestCase
             'sisters' => ['rows' => []],
             'grocery_weeks' => ['rows' => [$week->getAttributes()]],
             'grocery_shares' => ['rows' => [GroceryShare::factory()->make(['id' => 1, 'sister_id' => 999, 'grocery_week_id' => $week->id])->getAttributes()]],
+            'payments' => ['rows' => []],
         ]]));
 
         $this->artisan('app:import-data', ['file' => $file, '--force' => true])

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\GroceryShare;
 use App\Models\GroceryWeek;
+use App\Models\Payment;
 use App\Models\Sister;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -34,7 +35,8 @@ class ExportDataCommandTest extends TestCase
     {
         $sister = Sister::factory()->create(['name' => 'Jane', 'email' => 'jane@example.com']);
         $week = GroceryWeek::factory()->create(['total_amount' => 150.00, 'notes' => 'Costco "bulk" run, eggs']);
-        GroceryShare::factory()->paid()->create(['sister_id' => $sister->id, 'grocery_week_id' => $week->id, 'amount' => 50.00]);
+        GroceryShare::factory()->create(['sister_id' => $sister->id, 'grocery_week_id' => $week->id, 'amount' => 50.00]);
+        Payment::factory()->create(['sister_id' => $sister->id, 'amount' => 20.00]);
 
         $this->artisan('app:export-data', ['--path' => $this->exportDirectory])
             ->expectsOutputToContain('Export written to:')
@@ -45,13 +47,14 @@ class ExportDataCommandTest extends TestCase
 
         $export = json_decode(File::get($files[0]), true, flags: JSON_THROW_ON_ERROR);
 
-        $this->assertSame(['sisters' => 1, 'grocery_weeks' => 1, 'grocery_shares' => 1], $export['counts']);
+        $this->assertSame(['sisters' => 1, 'grocery_weeks' => 1, 'grocery_shares' => 1, 'payments' => 1], $export['counts']);
         $this->assertArrayHasKey('exported_at', $export);
         $this->assertSame('Jane', $export['tables']['sisters']['rows'][0]['name']);
         $this->assertSame('Costco "bulk" run, eggs', $export['tables']['grocery_weeks']['rows'][0]['notes']);
         $this->assertSame($sister->id, (int) $export['tables']['grocery_shares']['rows'][0]['sister_id']);
         $this->assertSame($week->id, (int) $export['tables']['grocery_shares']['rows'][0]['grocery_week_id']);
-        $this->assertContains('paid_at', $export['tables']['grocery_shares']['columns']);
+        $this->assertSame($sister->id, (int) $export['tables']['payments']['rows'][0]['sister_id']);
+        $this->assertContains('paid_on', $export['tables']['payments']['columns']);
     }
 
     public function test_csv_export_writes_one_file_per_table_with_headers(): void
@@ -94,7 +97,7 @@ class ExportDataCommandTest extends TestCase
 
         $export = json_decode(File::get(File::glob($this->exportDirectory.'/*.json')[0]), true);
 
-        $this->assertSame(['sisters' => 0, 'grocery_weeks' => 0, 'grocery_shares' => 0], $export['counts']);
+        $this->assertSame(['sisters' => 0, 'grocery_weeks' => 0, 'grocery_shares' => 0, 'payments' => 0], $export['counts']);
         $this->assertNotEmpty($export['tables']['sisters']['columns']);
     }
 
